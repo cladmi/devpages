@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>RIOT size comparison tool</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sortable/0.8.0/js/sortable.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/sortable/0.8.0/css/sortable-theme-bootstrap.min.css"/>
+</head>
+<body>
+
+<p>
+Put the url from murdock result page. It is in the form: https://ci.riot-os.org/RIOT-OS/RIOT/__PR__/__SHA1__/sizes.json like for example:
+</p>
+<p>
+https://ci.riot-os.org/RIOT-OS/RIOT/9845/b201017e3975edcc10247c611700b9537ef318b6/sizes.json
+</p>
+
+<form id="data-source" method="get" action="">
+<p>
+From: <input type="text" name="origin" id="origin">
+To:<input type="text" name="destination" id="destination">
+<input type="submit" value="Submit">
+</p>
+</form>
+<br/>
+
+<p>It currently requires an extension allowing CORS to work, like https://addons.mozilla.org/en-US/firefox/addon/cors-everywhere/</p>
+
+<h1>Summary:</h1>
+<p id="summary"></p>
+
+<table id="comparison-results" class="sortable-theme-bootstrap" data-sortable>
+<thead><tr>
+<th>App</th>
+<th>Board</th>
+<th>bss (old)</th>
+<th>data (old)</th>
+<th>text (old)</th>
+<th>dec (old)</th>
+<th>bss (new)</th>
+<th>data (new)</th>
+<th>text (new)</th>
+<th>dec (new)</th>
+<th>Δbss</th>
+<th>Δdata</th>
+<th>Δtext</th>
+<th>Δdec</th>
+<th>Both valid</th>
+</tr>
+</thead>
+<tbody id="comparison-results-body">
+</tbody>
+</table>
+
+<script>
+// stolen from https://stackoverflow.com/questions/901115/how-can-i-get-query-string-values-in-javascript
+function getParameterByName(name, url) {
+    if (!url) url = window.location.href;
+    name = name.replace(/[\[\]]/g, '\\$&');
+    var regex = new RegExp('[?&]' + name + '(=([^&#]*)|&|#|$)'),
+        results = regex.exec(url);
+    if (!results) return null;
+    if (!results[2]) return '';
+    return decodeURIComponent(results[2].replace(/\+/g, ' '));
+}
+
+var origin = getParameterByName('origin');
+var destination = getParameterByName('destination');
+
+if (origin) {
+    document.getElementById("origin").value = origin;
+}
+if (destination) {
+    document.getElementById("destination").value = destination;
+}
+
+function setDefault(obj, prop, deflt) {
+    return obj.hasOwnProperty(prop) ? obj[prop] : (obj[prop] = deflt);
+}
+
+function _add_to_result_dict(result_dict, sizes, name) {
+    for (app in sizes) {
+        for (board in sizes[app]) {
+            key = app + '_' + board;
+
+            app_board = new Object();
+            app_board.app = app;
+            app_board.board = board;
+
+            app_board = setDefault(result_dict, key, app_board);
+            app_board[name] = sizes[app][board];
+        }
+    }
+}
+
+function _update_diff(result_dict, result_stat) {
+    for (key in result_dict) {
+        app_board = result_dict[key];
+        app_board.both_valid = true
+
+        for (name of ['origin', 'destination']) {
+            if (!app_board.hasOwnProperty(name)) {
+                app_board[name] = {'bss': 0, 'data': 0, 'text': 0, 'dec': 0};
+                app_board.both_valid = false
+            }
+        }
+        app_board.diff = {};
+
+        keys = ['bss', 'data', 'text', 'dec'];
+        for (key of ['bss', 'data', 'text', 'dec']) {
+            diff = app_board['destination'][key] - app_board['origin'][key];
+            app_board.diff[key] = diff;
+        }
+
+        // Add an info if both are the same
+        app_board.is_same = app_board.both_valid;
+        if (app_board.both_valid) {
+            for (key of ['bss', 'data', 'text', 'dec']) {
+                if (app_board.diff[key] != 0) {
+                    app_board.is_same = false;
+                    break;
+                }
+            }
+        }
+
+        // Update counters
+        if (app_board.is_same) {
+            result_stat.num_same++;
+        } else {
+            result_stat.num_diff++;
+        }
+
+        result_stat.num_tot++;
+    }
+}
+
+function _to_array(result_dict) {
+    var result = [];
+    for (key in result_dict) {
+        app_board = result_dict[key];
+        if (app_board.is_same) {
+            continue;
+        }
+        var entry = [];
+        entry.push(app_board.app, app_board.board);
+
+        for (name of ['origin', 'destination', 'diff']) {
+            for (key of ['bss', 'data', 'text', 'dec']) {
+                entry.push(app_board[name][key]);
+            }
+        }
+        entry.push(app_board.both_valid);
+        result.push(entry);
+    }
+
+    return result;
+}
+
+
+function diff_entries_array(data) {
+    var result_dict = {}
+    var result_stat = {}
+    result_stat.num_same = 0;
+    result_stat.num_diff = 0;
+    result_stat.num_tot = 0;
+
+    data.result = []
+    origin = data.origin['sizes']
+    destination = data.destination['sizes']
+
+    _add_to_result_dict(result_dict, origin, 'origin')
+    _add_to_result_dict(result_dict, destination, 'destination')
+    _update_diff(result_dict, result_stat);
+
+
+    var entries = _to_array(result_dict);
+    var results = {"entries": entries, "stats": result_stat, "dict": result_dict};
+    return results // No idea how to do unpacking on the other side
+}
+
+
+function populate_comparison_table(entries) {
+
+    entries.sort(function (a, b) {
+        // dec is index 13
+        // valid is index 14
+        if (a[14] == b[14]) {
+            return a[13] - b[13];
+        } else {
+            // Put False first
+            return !(a[14] - b[14]);
+        }
+    });
+    entries.reverse();
+
+    var tbody = document.getElementById("comparison-results-body");
+    for (entry of entries) {
+        var tr = document.createElement("tr");
+
+        // ADd new TR
+        for (value of entry) {
+            var td = document.createElement("td");
+            td.innerHTML = value;
+            // add all values TD
+            tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+    }
+}
+
+
+function populate_summary(result_stat) {
+    var text = ""
+    text += "Total: " + result_stat.num_tot;
+    text += ", Same: " + result_stat.num_same;
+    text += ", Diff: " + result_stat.num_diff;
+    console.log(text);
+
+    document.getElementById("summary").innerHTML = text
+}
+
+if (origin && destination) {
+
+    var req = new XMLHttpRequest();
+    req.responseType = "json";
+    var data = {}
+
+    req.onload =
+        function(e) {
+            data.origin = req.response;
+            req.onload =
+                function (e) {
+                    data.destination = req.response;
+                    var results = diff_entries_array(data);
+
+                    populate_summary(results.stats);
+                    populate_comparison_table(results.entries);
+                };
+            req.open("GET", destination, true);
+            req.send();
+        };
+    req.open("GET", origin, true)
+    req.send();
+}
+
+</script>
+</body>
+</html>
