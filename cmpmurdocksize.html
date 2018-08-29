@@ -220,10 +220,15 @@ function populate_summary(result_stat) {
     document.getElementById("summary").innerHTML = text
 }
 
+function _alert_no_cors(e) {
+    alert("Cannot download files from murdock, please install a CORS enabling extension");
+}
+
 if (origin && destination) {
 
     var req = new XMLHttpRequest();
     req.responseType = "json";
+    req.onerror = _alert_no_cors;
     var data = {}
 
     req.onload =
