@@ -75,7 +75,7 @@ if (destination) {
 }
 
 function setDefault(obj, prop, deflt) {
-    return obj.hasOwnProperty(prop) ? obj[prop] : (obj[prop] = deflt);
+    return (obj.hasOwnProperty(prop) ? obj[prop] : (obj[prop] = deflt));
 }
 
 function _add_to_result_dict(result_dict, sizes, name) {
