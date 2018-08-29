@@ -178,19 +178,20 @@ function diff_entries_array(data) {
     return results // No idea how to do unpacking on the other side
 }
 
+function _entry_sort(a, b) {
+    // dec is index 13
+    // valid is index 14
+    if (a[14] == b[14]) {
+        return a[13] - b[13];
+    } else {
+        // Put False first
+        return - ((a[14] ? 1 : 0) - (b[14] ? 1 : 0));
+    }
+}
 
 function populate_comparison_table(entries) {
 
-    entries.sort(function (a, b) {
-        // dec is index 13
-        // valid is index 14
-        if (a[14] == b[14]) {
-            return a[13] - b[13];
-        } else {
-            // Put False first
-            return !(a[14] - b[14]);
-        }
-    });
+    entries.sort(_entry_sort);
     entries.reverse();
 
     var tbody = document.getElementById("comparison-results-body");
